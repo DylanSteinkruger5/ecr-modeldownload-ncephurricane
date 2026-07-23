@@ -111,7 +111,7 @@ def parse_file_url(file_url):
     file_parts["domain"] = file_parts["domain"].upper()
     file_parts["forecast_hour"] = int(file_parts["forecast_hour"])
     file_parts["model_init_time"] = datetime.strptime(file_parts.pop("init_time"), '%Y%m%d%H').replace(tzinfo=timezone.utc)
-    file_parts["model"] = f"{file_parts['model_family']}_{file_parts['domain']}_{file_parts['storm_id']}"
+    file_parts["model"] = f"{file_parts['model_family']}/{file_parts['domain']}_{file_parts['storm_id']}"
     return file_parts
 
 def grid_message_for_product(grbs, idx_lines, search_string):
