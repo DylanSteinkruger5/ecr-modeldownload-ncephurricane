@@ -37,6 +37,8 @@ product_table = {
 }
 
 product_table_hafs = {
+    "2mDPT": Product(":DPT:2 m above ground:", 220, 310, "linear", "K"),
+    "2mRH": Product(":RH:2 m above ground:", 0, 100, "linear", "%"),
     "925mbHGT": Product(":HGT:925 mb:", 400, 1200, "linear", "m"),
     "925mbTMP": Product(":TMP:925 mb:", 180, 322, "linear", "K"),
     "925mbRH": Product(":RH:925 mb:", 0, 1, "linear", "%"),
@@ -55,6 +57,7 @@ product_table_hafs = {
     "10mGUST": Product(":GUST:surface:", 0, 64, "linear", "m/s"),
     "10mWINDMAX": Product(":WIND:10 m above ground:", 0, 88, "linear", "m/s"),
     "REFC": Product(":REFC:entire atmosphere", -10, 80, "linear", "dBZ"),
+    "PWAT": Product(":PWAT:entire atmosphere", 0, 100, "linear", "mm"),
     "SBCAPE": Product(":CAPE:surface:", 0, 10000, "linear", "J/kg"),
     "SBCIN": Product(":CIN:surface:", -1000, 0, "linear", "J/kg"),
     "HLCY3km": Product(":HLCY:3000-0 m above ground:", 0, 1000, "linear", "m2/s2"),
@@ -77,6 +80,8 @@ product_table_wind = {
 }
 
 product_table_special_hafs = {
+    "POTE": SpecialProduct("POTE", 220, 370, "linear", "K"),
+    "APPT": SpecialProduct("APPT", 200, 350, "linear", "K"),
     "850mbCVORT": SpecialProduct("850mbCVORT", -50*10**-5, 200*10**-5, "linear", "/s"),
     "700mbCVORT": SpecialProduct("700mbCVORT", -50*10**-5, 200*10**-5, "linear", "/s"),
     "500mbCVORT": SpecialProduct("500mbCVORT", -50*10**-5, 200*10**-5, "linear", "/s"),
@@ -204,6 +209,12 @@ def hafs_accumulation_product_table(idx_lines):
         "APCPT-sum": Product(record_lookup(matches[1]), 0, 762, "exponential", "mm", exponent=.5, upload_raw=True),
     }
 
+def hafs_tcdc_product(idx_lines):
+    matches = [line for line in idx_lines if ":TCDC:entire atmosphere" in line and "ave fcst" not in line]
+    if len(matches) != 1:
+        raise Exception(f"Expected one instantaneous HAFS TCDC record, found {len(matches)}")
+    return Product(":".join(matches[0].split(":", 2)[:2]) + ":", 0, 100, "linear", "%")
+
 def grid_header_from_message(grb, file_parts):
     if grb.gridType != "regular_ll":
         raise Exception(f"Unsupported hurricane model grid type: {grb.gridType}")
@@ -284,6 +295,7 @@ def lambda_handler(msg):
     if is_hafs:
         active_product_table.update(product_table_hafs)
         active_product_table.update(hafs_accumulation_product_table(idx_lines))
+        active_product_table["TCDC"] = hafs_tcdc_product(idx_lines)
 
         sat_grib_url = grib_url.replace(".atm.", ".sat.")
 
