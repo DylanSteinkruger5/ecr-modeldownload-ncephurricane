@@ -15,10 +15,13 @@ import re
 import time
 
 from ModelHelpers import download_requested_products
+from ModelHelpers import download_requested_products_contour
 from ModelHelpers import download_requested_products_contour_outline
 from ModelHelpers import download_requested_global_dynamic_wind_products
+from ModelHelpers import download_requested_products_special
 from ModelHelpers import ContourProduct
 from ModelHelpers import Product
+from ModelHelpers import SpecialProduct
 from ModelHelpers import WindProduct
 
 #=============================
@@ -33,12 +36,65 @@ product_table = {
     "MSLP": Product(":PRMSL:mean sea level:", 84400, 110000, "linear", "Pa"),
 }
 
+product_table_hafs = {
+    "925mbHGT": Product(":HGT:925 mb:", 400, 1200, "linear", "m"),
+    "925mbTMP": Product(":TMP:925 mb:", 180, 322, "linear", "K"),
+    "925mbRH": Product(":RH:925 mb:", 0, 1, "linear", "%"),
+    "850mbHGT": Product(":HGT:850 mb:", 1000, 2000, "linear", "m"),
+    "850mbTMP": Product(":TMP:850 mb:", 180, 322, "linear", "K"),
+    "850mbRH": Product(":RH:850 mb:", 0, 1, "linear", "%"),
+    "700mbHGT": Product(":HGT:700 mb:", 2200, 4000, "linear", "m"),
+    "700mbTMP": Product(":TMP:700 mb:", 180, 322, "linear", "K"),
+    "700mbRH": Product(":RH:700 mb:", 0, 1, "linear", "%"),
+    "500mbHGT": Product(":HGT:500 mb:", 4800, 6400, "linear", "m"),
+    "500mbTMP": Product(":TMP:500 mb:", 180, 322, "linear", "K"),
+    "500mbRH": Product(":RH:500 mb:", 0, 1, "linear", "%"),
+    "250mbHGT": Product(":HGT:250 mb:", 9500, 11500, "linear", "m"),
+    "250mbTMP": Product(":TMP:250 mb:", 160, 300, "linear", "K"),
+    "250mbRH": Product(":RH:250 mb:", 0, 1, "linear", "%"),
+    "10mGUST": Product(":GUST:surface:", 0, 64, "linear", "m/s"),
+    "10mWINDMAX": Product(":WIND:10 m above ground:", 0, 88, "linear", "m/s"),
+    "REFC": Product(":REFC:entire atmosphere", -10, 80, "linear", "dBZ"),
+    "SBCAPE": Product(":CAPE:surface:", 0, 10000, "linear", "J/kg"),
+    "SBCIN": Product(":CIN:surface:", -1000, 0, "linear", "J/kg"),
+    "HLCY3km": Product(":HLCY:3000-0 m above ground:", 0, 1000, "linear", "m2/s2"),
+    "MXUPHL5km": Product(":MXUPHL:5000-2000 m above ground:", 0, 1000, "linear", "m2/s2"),
+    "MXUPHL3km": Product(":MXUPHL:3000-0 m above ground:", 0, 500, "linear", "m2/s2"),
+    "GOESWVH": Product("parmcat=192 parm=53:", 150, 280, "linear", "K"),
+    "GOESWVM": Product("parmcat=192 parm=54:", 150, 280, "linear", "K"),
+    "GOESWVL": Product("parmcat=192 parm=55:", 150, 280, "linear", "K"),
+    "GOESIR": Product("parmcat=192 parm=58:", 160, 330, "linear", "K"),
+}
+
 product_table_wind = {
     "10mWIND": WindProduct([":UGRD:10 m above ground:", ":VGRD:10 m above ground:"], 0, 88, "linear", "m/s"),
+    "925mbWIND": WindProduct([":UGRD:925 mb:", ":VGRD:925 mb:"], 0, 88, "linear", "m/s"),
+    "850mbWIND": WindProduct([":UGRD:850 mb:", ":VGRD:850 mb:"], 0, 88, "linear", "m/s"),
+    "700mbWIND": WindProduct([":UGRD:700 mb:", ":VGRD:700 mb:"], 0, 88, "linear", "m/s"),
+    "500mbWIND": WindProduct([":UGRD:500 mb:", ":VGRD:500 mb:"], 0, 128, "linear", "m/s"),
+    "300mbWIND": WindProduct([":UGRD:300 mb:", ":VGRD:300 mb:"], 0, 128, "linear", "m/s"),
+    "200mbWIND": WindProduct([":UGRD:200 mb:", ":VGRD:200 mb:"], 0, 128, "linear", "m/s"),
+}
+
+product_table_special_hafs = {
+    "850mbCVORT": SpecialProduct("850mbCVORT", -50*10**-5, 200*10**-5, "linear", "/s"),
+    "700mbCVORT": SpecialProduct("700mbCVORT", -50*10**-5, 200*10**-5, "linear", "/s"),
+    "500mbCVORT": SpecialProduct("500mbCVORT", -50*10**-5, 200*10**-5, "linear", "/s"),
+}
+
+product_table_contours_hafs = {
+    "MXUPHL5km": ContourProduct(":MXUPHL:5000-2000 m above ground:", [75], "m2/s2"),
+    "MXUPHL3km": ContourProduct(":MXUPHL:3000-0 m above ground:", [75], "m2/s2"),
 }
 
 product_table_contours_outlined = {
     "MSLMA-outlined": ContourProduct(":PRMSL:mean sea level:", np.arange(85000, 110000, 200).tolist(), "Pa", filled=False, major_labels=np.arange(85200, 110000, 400)),
+    "925mbHGT-outlined": ContourProduct(":HGT:925 mb:", np.arange(0, 1800, 30).tolist(), "Pa", filled=False, major_labels=np.arange(0, 1800, 60)),
+    "850mbHGT-outlined": ContourProduct(":HGT:850 mb:", np.arange(300, 2100, 30).tolist(), "Pa", filled=False, major_labels=np.arange(300, 2100, 60)),
+    "700mbHGT-outlined": ContourProduct(":HGT:700 mb:", np.arange(1800, 3600, 30).tolist(), "Pa", filled=False, major_labels=np.arange(1800, 3600, 60)),
+    "500mbHGT-outlined": ContourProduct(":HGT:500 mb:", np.arange(4800, 6400, 30).tolist(), "Pa", filled=False, major_labels=np.arange(4800, 6400, 60)),
+    "300mbHGT-outlined": ContourProduct(":HGT:300 mb:", np.arange(7800, 10200, 30).tolist(), "Pa", filled=False, major_labels=np.arange(7800, 10200, 60)),
+    "200mbHGT-outlined": ContourProduct(":HGT:200 mb:", np.arange(10400, 13200, 30).tolist(), "Pa", filled=False, major_labels=np.arange(10400, 13200, 60)),
 }
 
 #=============================
@@ -135,6 +191,19 @@ def grid_message_for_product(grbs, idx_lines, search_string):
         raise Exception(f"Duplicate matches for search string. Make the string more specific: {search_string}")
     return grbs[matches[0] + 1]
 
+def hafs_accumulation_product_table(idx_lines):
+    matches = [line for line in idx_lines if ":APCP:surface:" in line]
+    if len(matches) != 2:
+        raise Exception(f"Expected two HAFS APCP records, found {len(matches)}")
+
+    def record_lookup(line):
+        return ":".join(line.split(":", 2)[:2]) + ":"
+
+    return {
+        "APCP3H-sum": Product(record_lookup(matches[0]), 0, 762, "exponential", "mm", exponent=.5, upload_raw=True),
+        "APCPT-sum": Product(record_lookup(matches[1]), 0, 762, "exponential", "mm", exponent=.5, upload_raw=True),
+    }
+
 def grid_header_from_message(grb, file_parts):
     if grb.gridType != "regular_ll":
         raise Exception(f"Unsupported hurricane model grid type: {grb.gridType}")
@@ -198,6 +267,7 @@ def lambda_handler(msg):
     file = file_parts["file"][:-4]
     grib_url = file_url[:-4]
     local_dir = f"/tmp/lambda_data/{file}"
+    is_hafs = file_parts["model_family"] in ["HFSA", "HFSB"]
 
     with closing(request.urlopen(grib_url)) as r:
         with open(local_dir, "wb") as f:
@@ -209,14 +279,33 @@ def lambda_handler(msg):
 
     with open(f"{local_dir}.idx") as f:
         idx_lines = np.array(f.readlines())
-    grbs = pygrib.open(local_dir)
 
+    active_product_table = dict(product_table)
+    if is_hafs:
+        active_product_table.update(product_table_hafs)
+        active_product_table.update(hafs_accumulation_product_table(idx_lines))
+
+        sat_grib_url = grib_url.replace(".atm.", ".sat.")
+
+        with closing(request.urlopen(sat_grib_url)) as r:
+            with open(local_dir, "ab") as f:
+                shutil.copyfileobj(r, f)
+
+        with closing(request.urlopen(f"{sat_grib_url}.idx")) as r:
+            with open(f"{local_dir}.sat.idx", "wb") as f:
+                shutil.copyfileobj(r, f)
+
+        with open(f"{local_dir}.sat.idx") as f:
+            sat_idx_lines = np.array(f.readlines())
+        idx_lines = np.concatenate((idx_lines, sat_idx_lines))
+
+    grbs = pygrib.open(local_dir)
     grid_message = grid_message_for_product(grbs, idx_lines, product_table["2mTMP"].grb_lookup)
     header_fields = grid_header_from_message(grid_message, file_parts)
 
     print(f"Starting product downloads: {time.time() - time0}")
     download_requested_products(
-        product_table,
+        active_product_table,
         grbs,
         idx_lines,
         model,
@@ -226,7 +315,18 @@ def lambda_handler(msg):
     )
     print(f"Standard products complete: {time.time() - time0}")
 
-    if file_parts["model_family"] in ["HFSA", "HFSB"]:
+    if is_hafs:
+        download_requested_products_special(
+            product_table_special_hafs,
+            grbs,
+            idx_lines,
+            model,
+            model_init_time=model_init_time,
+            forecast_hour=forecast_hour,
+            header_fields=header_fields
+        )
+        print(f"Special products complete: {time.time() - time0}")
+
         download_requested_global_dynamic_wind_products(
             product_table_wind,
             grbs,
@@ -238,6 +338,16 @@ def lambda_handler(msg):
             forecast_hour=forecast_hour
         )
         print(f"Wind products complete: {time.time() - time0}")
+
+        download_requested_products_contour(
+            product_table_contours_hafs,
+            grbs,
+            idx_lines,
+            model,
+            model_init_time=model_init_time,
+            forecast_hour=forecast_hour
+        )
+        print(f"Filled contour products complete: {time.time() - time0}")
 
         download_requested_products_contour_outline(
             product_table_contours_outlined,
