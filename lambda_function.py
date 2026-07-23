@@ -68,8 +68,8 @@ def respond_200():
 
 def insert_item_dynamodb(model, model_init_time, forecast_hour):
 
-    item = {'model': {'S': model},
-            'time_string': {'S': f"{model_init_time.strftime('%m%d%y_%HZ')}_F{str(int(forecast_hour)).zfill(4)}"},
+    item = {'model': {'S': 'HURRICANE'},
+            'time_string': {'S': f"{model}#{model_init_time.strftime('%m%d%y_%HZ')}_F{str(int(forecast_hour)).zfill(4)}"},
             'model_init_time': {'S': model_init_time.strftime('%m%d%y_%HZ')},
             'model_init_time_epoch': {'N': str(int(model_init_time.timestamp()))},
             'forecast_hour': {'N': str(int(forecast_hour))},
@@ -212,8 +212,6 @@ def lambda_handler(msg):
         header_fields=header_fields
     )
     print(f"Standard products complete: {time.time() - time0}")
-
-    raise Exception("Complete!")
 
     insert_item_dynamodb(model, model_init_time, forecast_hour)
 
