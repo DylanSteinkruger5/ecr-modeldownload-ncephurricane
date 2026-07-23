@@ -15,7 +15,9 @@ import re
 import time
 
 from ModelHelpers import download_requested_products
+from ModelHelpers import download_requested_global_dynamic_wind_products
 from ModelHelpers import Product
+from ModelHelpers import WindProduct
 
 #=============================
 
@@ -26,6 +28,10 @@ table_name = 'EvoWeather-ModelURLTable'
 
 product_table = {
     "2mTMP": Product(":TMP:2 m above ground:", 220, 330, "linear", "K"),
+}
+
+product_table_wind = {
+    "10mWIND": WindProduct([":UGRD:10 m above ground:", ":VGRD:10 m above ground:"], 0, 88, "linear", "m/s"),
 }
 
 #=============================
@@ -212,6 +218,19 @@ def lambda_handler(msg):
         header_fields=header_fields
     )
     print(f"Standard products complete: {time.time() - time0}")
+
+    if file_parts["model_family"] in ["HFSA", "HFSB"]:
+        download_requested_global_dynamic_wind_products(
+            product_table_wind,
+            grbs,
+            idx_lines,
+            model,
+            header_fields,
+            6 if file_parts["domain"] == "PARENT" else 7,
+            model_init_time=model_init_time,
+            forecast_hour=forecast_hour
+        )
+        print(f"Wind products complete: {time.time() - time0}")
 
     insert_item_dynamodb(model, model_init_time, forecast_hour)
 
