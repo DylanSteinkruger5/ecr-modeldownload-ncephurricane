@@ -15,7 +15,9 @@ import re
 import time
 
 from ModelHelpers import download_requested_products
+from ModelHelpers import download_requested_products_contour_outline
 from ModelHelpers import download_requested_global_dynamic_wind_products
+from ModelHelpers import ContourProduct
 from ModelHelpers import Product
 from ModelHelpers import WindProduct
 
@@ -28,10 +30,15 @@ table_name = 'EvoWeather-ModelURLTable'
 
 product_table = {
     "2mTMP": Product(":TMP:2 m above ground:", 220, 330, "linear", "K"),
+    "MSLP": Product(":PRMSL:mean sea level:", 84400, 110000, "linear", "Pa"),
 }
 
 product_table_wind = {
     "10mWIND": WindProduct([":UGRD:10 m above ground:", ":VGRD:10 m above ground:"], 0, 88, "linear", "m/s"),
+}
+
+product_table_contours_outlined = {
+    "MSLMA-outlined": ContourProduct(":PRMSL:mean sea level:", np.arange(85000, 110000, 200).tolist(), "Pa", filled=False, major_labels=np.arange(85200, 110000, 400)),
 }
 
 #=============================
@@ -231,6 +238,16 @@ def lambda_handler(msg):
             forecast_hour=forecast_hour
         )
         print(f"Wind products complete: {time.time() - time0}")
+
+        download_requested_products_contour_outline(
+            product_table_contours_outlined,
+            grbs,
+            idx_lines,
+            model,
+            model_init_time=model_init_time,
+            forecast_hour=forecast_hour
+        )
+        print(f"Outlined contour products complete: {time.time() - time0}")
 
     insert_item_dynamodb(model, model_init_time, forecast_hour)
 
