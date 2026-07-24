@@ -28,6 +28,7 @@ from ModelHelpers import WindProduct
 
 dynamodb = boto3.client('dynamodb')
 table_name = 'EvoWeather-ModelURLTable'
+USE_HAFS_STATS_CENTER = True
 
 #=============================
 
@@ -204,52 +205,30 @@ def format_storm_name(storm_info, storm_id):
         return f"Invest {storm_id}"
     return name.replace("_", " ").title()
 
-def atcf_coordinate(value):
-    match = re.fullmatch(r"(\d+)([NSEW])", value.strip().upper())
-    if match is None:
-        raise ValueError(f"Invalid ATCF coordinate: {value}")
-    coordinate = int(match.group(1)) / 10
-    return -coordinate if match.group(2) in ["S", "W"] else coordinate
-
-def track_center_from_atcf(atcf_data, forecast_hour):
-    fallback = None
-    forecast_hour_string = str(int(forecast_hour)).zfill(3)
-    for line in atcf_data.splitlines():
-        fields = [field.strip() for field in line.split(",")]
-        if len(fields) < 12 or fields[5] != forecast_hour_string:
-            continue
-        center = {
-            "storm_center_lat": atcf_coordinate(fields[6]),
-            "storm_center_lon": atcf_coordinate(fields[7]),
-        }
-        if fields[11] == "34":
-            return center
-        fallback = fallback or center
-    return fallback
-
 def hafs_metadata(file_url, file_parts):
     base_url = file_url.rsplit('/', 1)[0]
     file_prefix = f"{file_parts['storm_id'].lower()}.{file_parts['model_init_time'].strftime('%Y%m%d%H')}.{file_parts['model_family'].lower()}"
     with closing(request.urlopen(f"{base_url}/{file_prefix}.storm_info")) as r:
         storm_name = format_storm_name(r.read().decode("utf-8"), file_parts["storm_id"])
 
-    storm_center = None
-    last_error = None
-    for attempt in range(3):
-        try:
-            with closing(request.urlopen(f"{base_url}/{file_prefix}.trak.atcfunix")) as r:
-                storm_center = track_center_from_atcf(r.read().decode("utf-8"), file_parts["forecast_hour"])
-            if storm_center is not None:
-                break
-        except Exception as e:
-            last_error = e
-        if attempt < 2:
-            time.sleep(2)
+    stats_data = None
+    if USE_HAFS_STATS_CENTER:
+        with closing(request.urlopen(f"{base_url}/{file_prefix}.grib.stats.short")) as r:
+            stats_data = r.read().decode("utf-8")
 
-    if storm_center is None:
-        raise Exception(f"Unable to find storm center for forecast hour {file_parts['forecast_hour']}") from last_error
+    return storm_name, stats_data
 
-    return storm_name, storm_center
+def stats_center(stats_data, forecast_hour):
+    if stats_data is None:
+        return None
+    pattern = re.compile(r"HOUR:\s*([\d.]+)\s+LONG:\s*(-?[\d.]+)\s+LAT:\s*(-?[\d.]+)")
+    for match in pattern.finditer(stats_data):
+        if float(match.group(1)) == forecast_hour:
+            return {
+                "storm_center_lat": float(match.group(3)),
+                "storm_center_lon": float(match.group(2)),
+            }
+    return None
 
 def grid_message_for_product(grbs, idx_lines, search_string):
     matches = [line_index for line_index, line in enumerate(idx_lines) if search_string in line]
@@ -258,6 +237,42 @@ def grid_message_for_product(grbs, idx_lines, search_string):
     if len(matches) > 1:
         raise Exception(f"Duplicate matches for search string. Make the string more specific: {search_string}")
     return grbs[matches[0] + 1]
+
+def grid_center_from_message(grb):
+    lat_step = float(grb.jDirectionIncrementInDegrees) * (1 if grb.jScansPositively else -1)
+    lon_step = float(grb.iDirectionIncrementInDegrees) * (-1 if grb.iScansNegatively else 1)
+    lat = float(grb.latitudeOfFirstGridPointInDegrees) + lat_step * (int(grb.Nj) - 1) / 2
+    lon = float(grb.longitudeOfFirstGridPointInDegrees) + lon_step * (int(grb.Ni) - 1) / 2
+    return {
+        "storm_center_lat": lat,
+        "storm_center_lon": (lon + 180) % 360 - 180,
+    }
+
+def storm_domain_center(grib_url, file_parts, local_dir):
+    storm_grib_url = grib_url.replace(f".{file_parts['domain'].lower()}.atm.", ".storm.atm.")
+    with closing(request.urlopen(f"{storm_grib_url}.idx")) as r:
+        storm_idx_lines = r.read().decode("utf-8").splitlines()
+
+    matches = [index for index, line in enumerate(storm_idx_lines) if ":PRMSL:mean sea level:" in line]
+    if len(matches) != 1 or matches[0] + 1 >= len(storm_idx_lines):
+        raise Exception("Unable to locate complete storm grid message")
+
+    line_index = matches[0]
+    byte_start = int(storm_idx_lines[line_index].split(":", 2)[1])
+    byte_end = int(storm_idx_lines[line_index + 1].split(":", 2)[1]) - 1
+    storm_grid_path = f"{local_dir}.storm-grid.grb2"
+    range_request = request.Request(storm_grib_url, headers={"Range": f"bytes={byte_start}-{byte_end}"})
+    with closing(request.urlopen(range_request)) as r:
+        if r.status != 206:
+            raise Exception("Storm grid server did not honor byte range request")
+        with open(storm_grid_path, "wb") as f:
+            shutil.copyfileobj(r, f)
+
+    storm_grbs = pygrib.open(storm_grid_path)
+    try:
+        return grid_center_from_message(storm_grbs[1])
+    finally:
+        storm_grbs.close()
 
 def hafs_accumulation_product_table(idx_lines):
     matches = [line for line in idx_lines if ":APCP:surface:" in line]
@@ -343,6 +358,14 @@ def lambda_handler(msg):
     local_dir = f"/tmp/lambda_data/{file}"
     is_hafs = file_parts["model_family"] in ["HFSA", "HFSB"]
 
+    storm_name = None
+    storm_center = None
+    if is_hafs:
+        storm_name, stats_data = hafs_metadata(file_url, file_parts)
+        storm_center = storm_domain_center(grib_url, file_parts, local_dir)
+        if USE_HAFS_STATS_CENTER:
+            storm_center = stats_center(stats_data, forecast_hour) or storm_center
+
     with closing(request.urlopen(grib_url)) as r:
         with open(local_dir, "wb") as f:
             shutil.copyfileobj(r, f)
@@ -354,8 +377,6 @@ def lambda_handler(msg):
     with open(f"{local_dir}.idx") as f:
         idx_lines = np.array(f.readlines())
 
-    storm_name = None
-    storm_center = None
     active_product_table = dict(product_table)
     if is_hafs:
         active_product_table.update(product_table_hafs)
@@ -375,8 +396,6 @@ def lambda_handler(msg):
         with open(f"{local_dir}.sat.idx") as f:
             sat_idx_lines = np.array(f.readlines())
         idx_lines = np.concatenate((idx_lines, sat_idx_lines))
-
-        storm_name, storm_center = hafs_metadata(file_url, file_parts)
 
     grbs = pygrib.open(local_dir)
     grid_message = grid_message_for_product(grbs, idx_lines, product_table["2mTMP"].grb_lookup)
