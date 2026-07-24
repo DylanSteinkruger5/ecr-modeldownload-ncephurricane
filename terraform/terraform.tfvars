@@ -11,5 +11,7 @@ security_groups = ["sg-0f4bfe0eaaff84919"]
 
 task_s3_resources = [
   "arn:aws:s3:::evo-weather-model-data",
-  "arn:aws:s3:::evo-weather-model-data/*"
+  "arn:aws:s3:::evo-weather-model-data/*",
+  "arn:aws:s3:::evo-weather-accumulation-data",
+  "arn:aws:s3:::evo-weather-accumulation-data/*"
 ]

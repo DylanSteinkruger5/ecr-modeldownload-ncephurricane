@@ -58,6 +58,6 @@ variable "min_tasks" {
 
 variable "max_tasks" {
   type    = number
-  default = 5
+  default = 20
 }
 
