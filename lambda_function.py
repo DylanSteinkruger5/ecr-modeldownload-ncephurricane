@@ -222,12 +222,17 @@ def hafs_metadata(file_url, file_parts):
 def stats_center(stats_data, forecast_hour):
     if stats_data is None:
         return None
-    pattern = re.compile(r"HOUR:\s*([\d.]+)\s+LONG:\s*(-?[\d.]+)\s+LAT:\s*(-?[\d.]+)")
+    pattern = re.compile(
+        r"HOUR:\s*([\d.]+)\s+LONG:\s*(-?[\d.]+)\s+LAT:\s*(-?[\d.]+)\s+"
+        r"MIN PRESS \(hPa\):\s*([\d.]+)"
+    )
     for match in pattern.finditer(stats_data):
         if float(match.group(1)) == forecast_hour:
             return {
                 "storm_center_lat": float(match.group(3)),
                 "storm_center_lon": float(match.group(2)),
+                "storm_center_pressure": float(match.group(4)),
+                "storm_center_source": "ncep_stats",
             }
     return None
 
@@ -247,6 +252,7 @@ def grid_center_from_message(grb):
     return {
         "storm_center_lat": lat,
         "storm_center_lon": (lon + 180) % 360 - 180,
+        "storm_center_source": "storm_grid",
     }
 
 def storm_domain_center(grib_url, file_parts, local_dir):
@@ -456,7 +462,12 @@ def lambda_handler(msg):
             idx_lines,
             model,
             model_init_time=model_init_time,
-            forecast_hour=forecast_hour
+            forecast_hour=forecast_hour,
+            pressure_center={
+                "lat": storm_center["storm_center_lat"],
+                "lon": storm_center["storm_center_lon"],
+                "pressure_hpa": storm_center["storm_center_pressure"],
+            } if storm_center.get("storm_center_source") == "ncep_stats" else None
         )
         print(f"Outlined contour products complete: {time.time() - time0}")
 
