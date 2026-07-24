@@ -194,10 +194,12 @@ def parse_file_url(file_url):
 def format_storm_name(storm_info, storm_id):
     name = storm_info.strip()
     if name == "":
-        return None
+        raise ValueError("Storm name is empty")
     storm_id_lower = storm_id.lower()
     if name.lower().endswith(storm_id_lower):
         name = name[:-len(storm_id)]
+    if name == "":
+        raise ValueError(f"Storm name only contains storm ID: {storm_id}")
     if name.lower() == "invest":
         return f"Invest {storm_id}"
     return name.replace("_", " ").title()
@@ -228,15 +230,11 @@ def track_center_from_atcf(atcf_data, forecast_hour):
 def hafs_metadata(file_url, file_parts):
     base_url = file_url.rsplit('/', 1)[0]
     file_prefix = f"{file_parts['storm_id'].lower()}.{file_parts['model_init_time'].strftime('%Y%m%d%H')}.{file_parts['model_family'].lower()}"
-    storm_name = None
+    with closing(request.urlopen(f"{base_url}/{file_prefix}.storm_info")) as r:
+        storm_name = format_storm_name(r.read().decode("utf-8"), file_parts["storm_id"])
+
     storm_center = None
-
-    try:
-        with closing(request.urlopen(f"{base_url}/{file_prefix}.storm_info")) as r:
-            storm_name = format_storm_name(r.read().decode("utf-8"), file_parts["storm_id"])
-    except Exception as e:
-        print(f"Unable to read storm name: {e}")
-
+    last_error = None
     for attempt in range(3):
         try:
             with closing(request.urlopen(f"{base_url}/{file_prefix}.trak.atcfunix")) as r:
@@ -244,10 +242,12 @@ def hafs_metadata(file_url, file_parts):
             if storm_center is not None:
                 break
         except Exception as e:
-            if attempt == 2:
-                print(f"Unable to read storm center: {e}")
+            last_error = e
         if attempt < 2:
             time.sleep(2)
+
+    if storm_center is None:
+        raise Exception(f"Unable to find storm center for forecast hour {file_parts['forecast_hour']}") from last_error
 
     return storm_name, storm_center
 
