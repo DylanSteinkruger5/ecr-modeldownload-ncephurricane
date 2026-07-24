@@ -19,6 +19,7 @@ from ModelHelpers import download_requested_products_contour
 from ModelHelpers import download_requested_products_contour_outline
 from ModelHelpers import download_requested_global_dynamic_wind_products
 from ModelHelpers import download_requested_products_special
+from ModelHelpers import generate_dynamic_sounding_data
 from ModelHelpers import ContourProduct
 from ModelHelpers import Product
 from ModelHelpers import SpecialProduct
@@ -458,6 +459,16 @@ def lambda_handler(msg):
             forecast_hour=forecast_hour
         )
         print(f"Outlined contour products complete: {time.time() - time0}")
+
+        generate_dynamic_sounding_data(
+            model,
+            grbs,
+            idx_lines,
+            model_init_time,
+            forecast_hour,
+            header_fields
+        )
+        print(f"Sounding data complete: {time.time() - time0}")
 
     insert_item_dynamodb(model, model_init_time, forecast_hour, storm_name=storm_name)
 
