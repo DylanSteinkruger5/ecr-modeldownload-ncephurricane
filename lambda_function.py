@@ -140,7 +140,7 @@ def respond_200():
         },
     }
 
-def insert_item_dynamodb(model, model_init_time, forecast_hour):
+def insert_item_dynamodb(model, model_init_time, forecast_hour, storm_name=None):
 
     item = {'model': {'S': 'HURRICANE'},
             'time_string': {'S': f"{model}#{model_init_time.strftime('%m%d%y_%HZ')}_F{str(int(forecast_hour)).zfill(4)}"},
@@ -148,6 +148,9 @@ def insert_item_dynamodb(model, model_init_time, forecast_hour):
             'model_init_time_epoch': {'N': str(int(model_init_time.timestamp()))},
             'forecast_hour': {'N': str(int(forecast_hour))},
             'ttl': {'N': str(int(model_init_time.timestamp() + 86400*3))}}
+
+    if storm_name is not None:
+        item['storm_name'] = {'S': storm_name}
 
     try:
         dynamodb.put_item(
@@ -187,6 +190,66 @@ def parse_file_url(file_url):
     file_parts["model_init_time"] = datetime.strptime(file_parts.pop("init_time"), '%Y%m%d%H').replace(tzinfo=timezone.utc)
     file_parts["model"] = f"{file_parts['model_family']}/{file_parts['domain']}_{file_parts['storm_id']}"
     return file_parts
+
+def format_storm_name(storm_info, storm_id):
+    name = storm_info.strip()
+    if name == "":
+        return None
+    storm_id_lower = storm_id.lower()
+    if name.lower().endswith(storm_id_lower):
+        name = name[:-len(storm_id)]
+    if name.lower() == "invest":
+        return f"Invest {storm_id}"
+    return name.replace("_", " ").title()
+
+def atcf_coordinate(value):
+    match = re.fullmatch(r"(\d+)([NSEW])", value.strip().upper())
+    if match is None:
+        raise ValueError(f"Invalid ATCF coordinate: {value}")
+    coordinate = int(match.group(1)) / 10
+    return -coordinate if match.group(2) in ["S", "W"] else coordinate
+
+def track_center_from_atcf(atcf_data, forecast_hour):
+    fallback = None
+    forecast_hour_string = str(int(forecast_hour)).zfill(3)
+    for line in atcf_data.splitlines():
+        fields = [field.strip() for field in line.split(",")]
+        if len(fields) < 12 or fields[5] != forecast_hour_string:
+            continue
+        center = {
+            "storm_center_lat": atcf_coordinate(fields[6]),
+            "storm_center_lon": atcf_coordinate(fields[7]),
+        }
+        if fields[11] == "34":
+            return center
+        fallback = fallback or center
+    return fallback
+
+def hafs_metadata(file_url, file_parts):
+    base_url = file_url.rsplit('/', 1)[0]
+    file_prefix = f"{file_parts['storm_id'].lower()}.{file_parts['model_init_time'].strftime('%Y%m%d%H')}.{file_parts['model_family'].lower()}"
+    storm_name = None
+    storm_center = None
+
+    try:
+        with closing(request.urlopen(f"{base_url}/{file_prefix}.storm_info")) as r:
+            storm_name = format_storm_name(r.read().decode("utf-8"), file_parts["storm_id"])
+    except Exception as e:
+        print(f"Unable to read storm name: {e}")
+
+    for attempt in range(3):
+        try:
+            with closing(request.urlopen(f"{base_url}/{file_prefix}.trak.atcfunix")) as r:
+                storm_center = track_center_from_atcf(r.read().decode("utf-8"), file_parts["forecast_hour"])
+            if storm_center is not None:
+                break
+        except Exception as e:
+            if attempt == 2:
+                print(f"Unable to read storm center: {e}")
+        if attempt < 2:
+            time.sleep(2)
+
+    return storm_name, storm_center
 
 def grid_message_for_product(grbs, idx_lines, search_string):
     matches = [line_index for line_index, line in enumerate(idx_lines) if search_string in line]
@@ -291,6 +354,8 @@ def lambda_handler(msg):
     with open(f"{local_dir}.idx") as f:
         idx_lines = np.array(f.readlines())
 
+    storm_name = None
+    storm_center = None
     active_product_table = dict(product_table)
     if is_hafs:
         active_product_table.update(product_table_hafs)
@@ -311,9 +376,13 @@ def lambda_handler(msg):
             sat_idx_lines = np.array(f.readlines())
         idx_lines = np.concatenate((idx_lines, sat_idx_lines))
 
+        storm_name, storm_center = hafs_metadata(file_url, file_parts)
+
     grbs = pygrib.open(local_dir)
     grid_message = grid_message_for_product(grbs, idx_lines, product_table["2mTMP"].grb_lookup)
     header_fields = grid_header_from_message(grid_message, file_parts)
+    if storm_center is not None:
+        header_fields.update(storm_center)
 
     print(f"Starting product downloads: {time.time() - time0}")
     download_requested_products(
@@ -371,7 +440,7 @@ def lambda_handler(msg):
         )
         print(f"Outlined contour products complete: {time.time() - time0}")
 
-    insert_item_dynamodb(model, model_init_time, forecast_hour)
+    insert_item_dynamodb(model, model_init_time, forecast_hour, storm_name=storm_name)
 
     print(f"Total time: {time.time() - time0}")
     return respond_200()
